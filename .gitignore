@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+backend/build/
+backend/dist/
+backend/webui/
+backend/venv
+*.spec.bak
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Data
+*.db
+*.db-wal
+*.db-shm
+app.ini
