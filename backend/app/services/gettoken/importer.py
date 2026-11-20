@@ -171,6 +171,7 @@ async def _run(sheet_id, sheet_name, thread):
         _job.total = len(sheet_accounts)
         step = max(1, thread)
         sem = asyncio.Semaphore(step)
+        account_repo.clear_accounts()
         async with EofficeAPI() as api:
             for i in range(0, len(sheet_accounts), step):
                 batch = sheet_accounts[i:i + step]

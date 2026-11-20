@@ -1,6 +1,6 @@
 import json
 import uuid as uuidlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from app.db.connection import get_conn, rows_to_dicts
@@ -14,86 +14,8 @@ def _now() -> str:
 def new_uuid() -> str:
     return str(uuidlib.uuid4())
 
-def import_rows(account_row, browser, fingerprint) -> None:
-    now = _now()
-    with get_conn() as conn:
-        existing = conn.execute(
-            "SELECT ID, Browser_id, Fingerprint_id FROM account WHERE Email = ? OR Ext_id = ?",
-            (account_row.email, str(account_row.id)),
-        ).fetchone()
-
-        def upsert_fingerprint(fp_id):
-            if fingerprint is None:
-                return fp_id
-            vals = (fingerprint.group1, fingerprint.group2, fingerprint.device1,
-                    fingerprint.device2, fingerprint.device3, fingerprint.gpu,
-                    fingerprint.r6408, fingerprint.r35661, fingerprint.r36342,
-                    fingerprint.random, fingerprint.user_agent,
-                    str(fingerprint.device_memory) if fingerprint.device_memory is not None else None)
-            if fp_id:
-                conn.execute("""UPDATE fingerprint SET Group1=?,Group2=?,Device1=?,Device2=?,Device3=?,
-                    GPU=?,R6408=?,R35661=?,R36342=?,Random=?,User_agent=?,Device_memory=? WHERE ID=?""",
-                    vals + (fp_id,))
-                return fp_id
-            cur = conn.execute("""INSERT INTO fingerprint
-                (Group1,Group2,Device1,Device2,Device3,GPU,R6408,R35661,R36342,Random,User_agent,Device_memory)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", vals)
-            return cur.lastrowid
-
-        def upsert_browser(br_id):
-            if browser is None:
-                return br_id
-            vals = (browser.proxy_type, browser.proxy_ip,
-                    str(browser.proxy_port) if browser.proxy_port is not None else None,
-                    browser.proxy_username, browser.proxy_password,
-                    fingerprint.user_agent if fingerprint else None, account_row.email)
-            if br_id:
-                conn.execute("""UPDATE browser SET Proxy_type=?,Proxy_ip=?,Proxy_port=?,
-                    Proxy_username=?,Proxy_password=?,User_agent=?,Profile_name=? WHERE ID=?""",
-                    vals + (br_id,))
-                return br_id
-            cur = conn.execute("""INSERT INTO browser
-                (Proxy_type,Proxy_ip,Proxy_port,Proxy_username,Proxy_password,User_agent,Profile_name)
-                VALUES (?,?,?,?,?,?,?)""", vals)
-            return cur.lastrowid
-
-        if existing:
-            fp_id = upsert_fingerprint(existing["Fingerprint_id"])
-            br_id = upsert_browser(existing["Browser_id"])
-            conn.execute(
-                "UPDATE account SET Password=?, Recovery=?, Two_fa=?, Browser_id=?, Fingerprint_id=?, Completed=0 WHERE ID=?",
-                (account_row.password, account_row.recovery, account_row.two_fa, br_id, fp_id, existing["ID"]),
-            )
-        else:
-            fp_id = upsert_fingerprint(None)
-            br_id = upsert_browser(None)
-            conn.execute(
-                """INSERT INTO account
-                   (Uuid, Ext_id, Email, Password, Recovery, Two_fa, Browser_id, Fingerprint_id,
-                    Completed, Source, Created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'local', ?)""",
-                (new_uuid(), str(account_row.id), account_row.email, account_row.password,
-                 account_row.recovery, account_row.two_fa, br_id, fp_id, now),
-            )
-            
-            
-def paginate(offset: int = 0, limit: int = 25) -> dict:
-    with get_conn() as conn:
-        total = conn.execute("SELECT COUNT(*) AS c FROM account").fetchone()["c"]
-        rows = conn.execute(
-            """SELECT ID, Ext_id, Uuid, Email, Profile_name, Status, Completed,
-                      Read_time, Source, Created_at
-               FROM (SELECT a.*, b.Profile_name FROM account a
-                     LEFT JOIN browser b ON b.ID = a.Browser_id)
-               ORDER BY Created_at DESC LIMIT ? OFFSET ?""",
-            (limit, offset),
-        ).fetchall()
-    return {"total": total, "data": rows_to_dicts(rows)}
-
-import json
 
 def _norm_list(v):
-   
     if not v:
         return []
     if isinstance(v, (str, int)):
@@ -101,19 +23,116 @@ def _norm_list(v):
     return [str(x).strip() for x in v if str(x).strip()]
 
 
+# ---------- Import ----------
+
+def clear_accounts() -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM mail_json")
+        conn.execute("DELETE FROM account")
+        conn.execute("DELETE FROM browser")
+        conn.execute("DELETE FROM fingerprint")
+        conn.execute(
+            "DELETE FROM sqlite_sequence WHERE name IN ('account','browser','fingerprint','mail_json')"
+        )
+
+
+def import_rows(account_row, browser, fingerprint) -> None:
+    now = _now()
+    with get_conn() as conn:
+        fp_id = None
+        if fingerprint is not None:
+            cur = conn.execute(
+                """INSERT INTO fingerprint
+                   (Group1,Group2,Device1,Device2,Device3,GPU,R6408,R35661,R36342,Random,User_agent,Device_memory)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (fingerprint.group1, fingerprint.group2, fingerprint.device1, fingerprint.device2,
+                 fingerprint.device3, fingerprint.gpu, fingerprint.r6408, fingerprint.r35661,
+                 fingerprint.r36342, fingerprint.random, fingerprint.user_agent,
+                 str(fingerprint.device_memory) if fingerprint.device_memory is not None else None),
+            )
+            fp_id = cur.lastrowid
+
+        br_id = None
+        if browser is not None:
+            cur = conn.execute(
+                """INSERT INTO browser
+                   (Proxy_type,Proxy_ip,Proxy_port,Proxy_username,Proxy_password,User_agent,Profile_name)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (browser.proxy_type, browser.proxy_ip,
+                 str(browser.proxy_port) if browser.proxy_port is not None else None,
+                 browser.proxy_username, browser.proxy_password,
+                 fingerprint.user_agent if fingerprint else None, account_row.email),
+            )
+            br_id = cur.lastrowid
+
+        conn.execute(
+            """INSERT INTO account
+               (Uuid, Ext_id, Email, Password, Recovery, Two_fa, Browser_id, Fingerprint_id,
+                Completed, Source, Created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'local', ?)""",
+            (new_uuid(), str(account_row.id), account_row.email, account_row.password,
+             account_row.recovery, account_row.two_fa, br_id, fp_id, now),
+        )
+
+
+# ---------- Token store ----------
+
+def save_token(email, access_token, refresh_token, expires_at) -> None:
+    now = _now()
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO token (Email, Access_token, Refresh_token, Expires_at, Updated_at)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(Email) DO UPDATE SET
+                   Access_token=excluded.Access_token, Refresh_token=excluded.Refresh_token,
+                   Expires_at=excluded.Expires_at, Updated_at=excluded.Updated_at""",
+            (email, access_token, refresh_token, expires_at, now),
+        )
+
+
+def get_valid_token(email):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT Access_token, Refresh_token, Expires_at FROM token WHERE Email = ?", (email,)
+        ).fetchone()
+    if not row or not row["Access_token"]:
+        return None
+    exp = row["Expires_at"]
+    if exp:
+        try:
+            if datetime.fromisoformat(exp) <= datetime.now(timezone.utc) + timedelta(seconds=60):
+                return None
+        except Exception:
+            pass
+    return {"access_token": row["Access_token"], "refresh_token": row["Refresh_token"], "expires_at": exp}
+
+
+# ---------- Filter / listing ----------
+
+def paginate(offset: int = 0, limit: int = 25) -> dict:
+    with get_conn() as conn:
+        total = conn.execute("SELECT COUNT(*) AS c FROM account").fetchone()["c"]
+        rows = conn.execute(
+            """SELECT ID, Ext_id, Uuid, Email, Profile_name, Status, Completed,
+                      Read_time, Date_die, Source, Created_at
+               FROM (SELECT a.*, b.Profile_name FROM account a
+                     LEFT JOIN browser b ON b.ID = a.Browser_id)
+               ORDER BY Created_at DESC LIMIT ? OFFSET ?""",
+            (limit, offset),
+        ).fetchall()
+    return {"total": total, "data": rows_to_dicts(rows)}
+
+
 def search(account_ids=None, emails=None, status=None, date_from=None, date_to=None,
            account_id=None, email=None) -> list[dict]:
-    
     ids = _norm_list(account_ids) or _norm_list(account_id)
     mails = _norm_list(emails) or _norm_list(email)
 
     clauses, params = [], []
 
     if len(ids) == 1:
-        
         clauses.append("CAST(Ext_id AS TEXT) LIKE ?"); params.append(f"%{ids[0]}%")
     elif ids:
-        
         clauses.append("CAST(Ext_id AS TEXT) IN (SELECT value FROM json_each(?))")
         params.append(json.dumps(ids))
 
@@ -126,18 +145,19 @@ def search(account_ids=None, emails=None, status=None, date_from=None, date_to=N
     if status:
         clauses.append("Status = ?"); params.append(status)
     if date_from:
-        clauses.append("date(Created_at) >= ?"); params.append(date_from)
+        clauses.append("date(Date_die) >= ?"); params.append(date_from)
     if date_to:
-        clauses.append("date(Created_at) <= ?"); params.append(date_to)
+        clauses.append("date(Date_die) <= ?"); params.append(date_to)
 
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     with get_conn() as conn:
         rows = conn.execute(
-            f"""SELECT ID, Ext_id, Uuid, Email, Status, Completed, Read_time, Source, Created_at
+            f"""SELECT ID, Ext_id, Uuid, Email, Status, Completed, Read_time, Date_die, Source, Created_at
                 FROM account{where} ORDER BY Created_at DESC""",
             params,
         ).fetchall()
     return rows_to_dicts(rows)
+
 
 def status_counts() -> list[dict]:
     with get_conn() as conn:
@@ -234,6 +254,8 @@ def upsert_shared(item: dict, origin_machine: str) -> str:
     return acc_uuid
 
 
+# ---------- Get token runner ----------
+
 def list_accounts_with_credentials(limit: Optional[int] = None) -> list[AccountWithCredentials]:
     q = """SELECT a.ID, a.Email, a.Password, a.Recovery, a.Two_fa,
                   b.Proxy_type, b.Proxy_ip, b.Proxy_port, b.Proxy_username, b.Proxy_password,
@@ -262,7 +284,8 @@ def list_accounts_with_credentials(limit: Optional[int] = None) -> list[AccountW
     ]
 
 
-def save_capture_result(account_id, email, status, list_mail, access_token, refresh_token) -> None:
+def save_capture_result(account_id, email, status, list_mail,
+                        access_token, refresh_token, expires_at=None, die_date=None) -> None:
     content = json.dumps(list_mail, ensure_ascii=False) if isinstance(list_mail, (dict, list)) else list_mail
     now = _now()
     with get_conn() as conn:
@@ -270,17 +293,14 @@ def save_capture_result(account_id, email, status, list_mail, access_token, refr
         acc_uuid = row["Uuid"] if row and row["Uuid"] else new_uuid()
         if row:
             conn.execute(
-                """UPDATE account SET Uuid=?, Status=?, Completed=1, Read_time=?,
-                       Access_token=?, Refresh_token=?, Token_updated_at=?, Source='local'
-                   WHERE ID=?""",
-                (acc_uuid, status, now, access_token, refresh_token, now, account_id),
+                "UPDATE account SET Uuid=?, Status=?, Completed=1, Read_time=?, Date_die=?, Source='local' WHERE ID=?",
+                (acc_uuid, status, now, die_date, account_id),
             )
         else:
             conn.execute(
-                """INSERT INTO account (Uuid, Email, Status, Completed, Read_time,
-                       Access_token, Refresh_token, Token_updated_at, Source, Created_at)
-                   VALUES (?, ?, ?, 1, ?, ?, ?, ?, 'local', ?)""",
-                (acc_uuid, email, status, now, access_token, refresh_token, now, now),
+                """INSERT INTO account (Uuid, Email, Status, Completed, Read_time, Date_die, Source, Created_at)
+                   VALUES (?, ?, ?, 1, ?, ?, 'local', ?)""",
+                (acc_uuid, email, status, now, die_date, now),
             )
         if content is not None:
             conn.execute(
@@ -290,3 +310,5 @@ def save_capture_result(account_id, email, status, list_mail, access_token, refr
                        Content=excluded.Content, Read_time=excluded.Read_time""",
                 (acc_uuid, content, now, now),
             )
+    if access_token:
+        save_token(email, access_token, refresh_token, expires_at)

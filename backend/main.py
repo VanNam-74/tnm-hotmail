@@ -1,3 +1,6 @@
+import os, sys
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
+
 import threading
 import time
 

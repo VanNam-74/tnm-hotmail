@@ -41,12 +41,18 @@ class MicrosoftAuthClient:
     def _build_proxy(self, acc: AccountWithCredentials) -> Optional[dict]:
         if not acc.proxy_ip or not acc.proxy_port:
             return None
-        scheme = (acc.proxy_type or "http").lower()
-        proxy = {"server": f"{scheme}://{acc.proxy_ip}:{acc.proxy_port}"}
+        ptype = (acc.proxy_type or "http").lower()
+        scheme = "socks5" if ptype.startswith("socks") else "http"
+        proxy = {
+            "server": f"{scheme}://{acc.proxy_ip}:{acc.proxy_port}",
+            "bypass": "127.0.0.1,localhost",
+        }
         if acc.proxy_username:
             proxy["username"] = acc.proxy_username
         if acc.proxy_password:
             proxy["password"] = acc.proxy_password
+        print(f"[proxy] {scheme}://{acc.proxy_ip}:{acc.proxy_port} "
+              f"(type={acc.proxy_type}) auth={'yes' if acc.proxy_username else 'no'}")
         return proxy
 
     async def login_and_get_code(self, acc: AccountWithCredentials, progress_queue):
@@ -64,10 +70,10 @@ class MicrosoftAuthClient:
         async with async_playwright() as pw:
             browser = await pw.chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,
+                channel="chrome",
                 headless=self.headless,
                 proxy=proxy_cfg,
                 args=[
-                    "--proxy-bypass-list=127.0.0.1;localhost",
                     *self.anti_bot.get_browser_argument(),
                 ],
                 user_agent=acc.user_agent or _DEFAULT_UA,
@@ -98,8 +104,9 @@ class MicrosoftAuthClient:
                             _, list_mail = await graph.get_list_mail_microsoft(
                                 page, _MESSAGES_URL, access_token
                             )
-                return {"code": auth_code, "list_mail": list_mail,
-                        "access_token": access_token, "refresh_token": refresh_token}, None
+                        return {"code": auth_code, "list_mail": list_mail,
+                        "access_token": access_token, "refresh_token": refresh_token,
+                        "expires_in": token_resp.get("expires_in") if isinstance(token_resp, dict) else None}, None
             except PWTimeout:
                 await progress_queue.put(TokenResult(acc.id, acc.email, error="Proxy issue"))
                 return None, None

@@ -85,7 +85,7 @@ class ConfigManager:
             ui_port=p.getint("server", "ui_port"),
             share_port=p.getint("share", "port"),
             share_enabled=p.getboolean("share", "enabled"),
-            eoffice_host=p.get("eoffice", "host", fallback="").rstrip("/"),
+            eoffice_host=(p.get("eoffice", "host", fallback="") or "http://192.168.1.91").rstrip("/"),
             eoffice_timeout=p.getint("eoffice", "timeout", fallback=30),
             secret_key=p.get("security", "secret_key", fallback=""),
             client_id=p.get("gettoken", "client_id", fallback=""),

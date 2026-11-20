@@ -51,11 +51,20 @@ CREATE TABLE IF NOT EXISTS account (
     Refresh_token    TEXT,
     Token_updated_at TEXT,
     Read_time        TEXT,
+    Date_die         TEXT,
     Source           TEXT DEFAULT 'local',
     Origin_machine   TEXT,
     Created_at       TEXT,
     FOREIGN KEY (Browser_id)     REFERENCES browser(ID)     ON DELETE SET NULL,
     FOREIGN KEY (Fingerprint_id) REFERENCES fingerprint(ID) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS token (
+    Email         TEXT PRIMARY KEY,
+    Access_token  TEXT,
+    Refresh_token TEXT,
+    Expires_at    TEXT,
+    Updated_at    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS mail_json (
@@ -94,7 +103,7 @@ INDEXES = [
 ]
 
 MIGRATIONS = {
-    "account": [("Recovery", "TEXT"), ("Two_fa", "TEXT"), ("Ext_id", "TEXT")],
+    "account": [("Recovery", "TEXT"), ("Two_fa", "TEXT"), ("Ext_id", "TEXT"), ("Date_die", "TEXT")],
     "browser": [("Proxy_username", "TEXT"), ("Proxy_password", "TEXT"), ("User_agent", "TEXT")],
     "fingerprint": [("R36342", "TEXT")],
 }

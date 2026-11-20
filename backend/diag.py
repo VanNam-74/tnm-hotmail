@@ -44,21 +44,10 @@
 # print("   row_count:", ws.row_count)
 # print("DONE")
 
-
-import socket, urllib3.util.connection as u
-u.allowed_gai_family = lambda: socket.AF_INET   # ép IPv4
-
-import time, requests
-import google.auth.transport.requests as gatr
-from google.oauth2.service_account import Credentials
-from app.core.paths import service_account_path
-from app.core.config import config_manager
-
-cfg = config_manager.get()
-creds = Credentials.from_service_account_file(str(service_account_path()),
-        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
-t=time.perf_counter(); creds.refresh(gatr.Request()); print("refresh:", round(time.perf_counter()-t,1),"s")
-url=f"https://sheets.googleapis.com/v4/spreadsheets/{cfg.google_sheet_id}/values/{cfg.google_sheet_name}"
-t=time.perf_counter()
-r=requests.get(url, headers={"Authorization":f"Bearer {creds.token}"}, timeout=60)
-print("values GET:", round(time.perf_counter()-t,1),"s", r.status_code, "rows=", len(r.json().get("values",[])))
+import sqlite3, os
+db = os.path.join(os.environ["LOCALAPPDATA"], "tnmhotmail", "tnm_tool.db")
+c = sqlite3.connect(db)
+n = c.execute("""SELECT COUNT(*) FROM account a
+  WHERE a.Email IS NOT NULL AND a.Password IS NOT NULL AND a.Completed=0""").fetchone()[0]
+print("eligible:", n)
+print("tables  :", [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")])
