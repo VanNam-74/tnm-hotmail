@@ -28,7 +28,7 @@ class GraphApiMicrosoft:
 
     async def get_list_mail_microsoft(self, page, message_url, access_token):
         params = {
-            "$top": randint(27, 30),
+            "$top": randint(80, 100),
             "$select": "id,subject,from,receivedDateTime,bodyPreview,body",
             "$orderby": "receivedDateTime desc",
         }

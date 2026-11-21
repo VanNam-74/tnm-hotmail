@@ -1,7 +1,4 @@
-"""
-Bộ từ khóa phân loại trạng thái tài khoản KDP — bê nguyên từ server cũ
-(worker/keywords.py). Dữ liệu, không phải logic; chỉnh ở đây khi có mẫu mail mới.
-"""
+
 
 KEYWORDS = {
     "temporarily suspended": [
@@ -12,7 +9,9 @@ KEYWORDS = {
         {"Suspended categories, keywords and/or BISAC codes": "categories, keywords and/or BISAC codes"},
         {"Suspended Necessary Rights": "necessary publishing rights"},
     ],
-    "terminating": [
+    "terminat": [
+        {"Ter Verify Identity": "unable to verify your identity"},
+        {"Ter No New Account": "not allowed to open a new KDP account"},
         {"Ter content guideline violations": "content guideline violations"},
         {"Ter Free - Content": "containing content that is freely"},
         {"Ter Multiple Accounts": "multiple accounts"},
@@ -25,9 +24,9 @@ KEYWORDS = {
     "audit": [
         {"Ter Audit": "audit"},
     ],
-    "As part of the termination process": [
+    "termination process": [
         {"Ter Will Pay": "You'll receive any unpaid royalties you have earned"},
-        {"Ter No Pay": "You're no longer eligible to receive outstanding royalties"},
+        {"Ter No Pay": "not eligible to receive any outstanding royalties"},
     ],
     "payment pending": [
         {"Pending Transaction": "Your inbound transaction is currently pending. Details are as below:"},
